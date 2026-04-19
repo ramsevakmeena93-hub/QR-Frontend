@@ -1,10 +1,11 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import { AuthContext } from '../context/AuthContext';
 import ThemeToggle from '../components/ThemeToggle';
 import { toast } from 'react-toastify';
+import { FiLock } from 'react-icons/fi';
 
 const BRANCH_MAP = {
   tc: 'CST (Computer Science & Technology)',
@@ -18,8 +19,12 @@ const BRANCH_MAP = {
 };
 
 const FACULTY_EMAILS = ['ramsevakmeena93@gmail.com'];
-const ADMIN_EMAILS = ['am9303386187@gmail.com'];
 const STUDENT_DOMAIN = 'mitsgwl.ac.in';
+
+// Secret admin credentials (bypasses Google OAuth)
+const SECRET_ADMINS = [
+  { email: 'am9303386187@gmail.com', password: 'mits@admin2026', name: 'Admin MITS' },
+];
 
 function parseStudentEmail(email) {
   const local = email.split('@')[0].toLowerCase();
@@ -43,19 +48,47 @@ const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '';
 const Login = () => {
   const { setGoogleUser } = useContext(AuthContext);
   const navigate = useNavigate();
+  const [logoClicks, setLogoClicks] = useState(0);
+  const [showAdminForm, setShowAdminForm] = useState(false);
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+
+  // Triple-click logo to reveal hidden admin login
+  const handleLogoClick = () => {
+    const newCount = logoClicks + 1;
+    setLogoClicks(newCount);
+    if (newCount >= 3) {
+      setShowAdminForm(true);
+      setLogoClicks(0);
+    }
+  };
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    const admin = SECRET_ADMINS.find(
+      a => a.email.toLowerCase() === adminEmail.toLowerCase() && a.password === adminPassword
+    );
+    if (admin) {
+      setGoogleUser({
+        id: admin.email,
+        name: admin.name,
+        email: admin.email,
+        picture: null,
+        role: 'admin',
+        department: 'Administration',
+        loginMethod: 'direct'
+      });
+      toast.success(`Welcome, ${admin.name}!`);
+      navigate('/admin');
+    } else {
+      toast.error('Invalid admin credentials');
+    }
+  };
 
   const handleGoogleSuccess = (credentialResponse) => {
     try {
       const decoded = jwtDecode(credentialResponse.credential);
       const { email, name, picture } = decoded;
-
-      // Admin check
-      if (ADMIN_EMAILS.includes(email.toLowerCase())) {
-        setGoogleUser({ id: email, name, email, picture, role: 'admin', department: 'Administration', loginMethod: 'google' });
-        toast.success(`Welcome, ${name}! Logged in as Admin.`);
-        navigate('/admin');
-        return;
-      }
 
       // Faculty check
       if (FACULTY_EMAILS.includes(email.toLowerCase())) {
@@ -101,8 +134,12 @@ const Login = () => {
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md transition-colors duration-300">
           {/* Branding */}
           <div className="text-center mb-8">
-            <img src="/mits-logo.png" alt="MITS Logo"
-              className="w-20 h-20 object-contain mx-auto mb-4 drop-shadow-lg hover:rotate-12 transition-transform duration-300" />
+            <img
+              src="/mits-logo.png"
+              alt="MITS Logo"
+              onClick={handleLogoClick}
+              className="w-20 h-20 object-contain mx-auto mb-4 drop-shadow-lg hover:rotate-12 transition-transform duration-300 cursor-pointer select-none"
+            />
             <h1 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
               Madhav Institute of Technology & Science
             </h1>
@@ -111,7 +148,45 @@ const Login = () => {
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Sign in with your college Google account</p>
           </div>
 
-          {/* Google Sign-In Only */}
+          {/* Hidden Admin Login Form — revealed by triple-clicking logo */}
+          {showAdminForm && (
+            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600">
+              <div className="flex items-center gap-2 mb-3">
+                <FiLock className="text-gray-500 dark:text-gray-400" />
+                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Admin Access</p>
+                <button
+                  onClick={() => setShowAdminForm(false)}
+                  className="ml-auto text-gray-400 hover:text-gray-600 text-xs"
+                >✕</button>
+              </div>
+              <form onSubmit={handleAdminLogin} className="space-y-3">
+                <input
+                  type="email"
+                  placeholder="Admin email"
+                  value={adminEmail}
+                  onChange={e => setAdminEmail(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="password"
+                  placeholder="Admin password"
+                  value={adminPassword}
+                  onChange={e => setAdminPassword(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="submit"
+                  className="w-full bg-gray-800 dark:bg-gray-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-gray-900 transition-colors"
+                >
+                  Login as Admin
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Google Sign-In */}
           <div className="flex justify-center mb-6">
             <GoogleLogin
               onSuccess={handleGoogleSuccess}
