@@ -83,7 +83,7 @@ const ActivityLogDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 font-mono text-sm">
+    <div className="flex flex-col bg-gray-950 text-gray-100 font-mono text-sm" style={{ minHeight: 'calc(100vh - 0px)' }}>
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-800 px-6 py-4">
         <div className="flex items-center justify-between mb-4">
@@ -174,7 +174,7 @@ const ActivityLogDashboard = () => {
       </div>
 
       {/* Log Rows */}
-      <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 320px)' }}>
+      <div className="overflow-y-auto flex-1" style={{ maxHeight: 'calc(100vh - 280px)' }}>
         {loading && (
           <div className="flex items-center justify-center py-16 text-gray-600">
             <FiRefreshCw className="animate-spin w-5 h-5 mr-2" /> Loading logs...

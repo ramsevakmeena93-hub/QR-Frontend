@@ -45,10 +45,6 @@ function App() {
                   <PrivateRoute role="teacher"><TeacherClassManagement /></PrivateRoute>
                 } />
 
-                <Route path="/teacher/logs" element={
-                  <PrivateRoute role="teacher"><ActivityLogDashboard /></PrivateRoute>
-                } />
-
                 <Route path="/student/*" element={
                   <PrivateRoute role="student"><StudentDashboard /></PrivateRoute>
                 } />
