@@ -1,242 +1,184 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { FiActivity, FiUser, FiFilter, FiRefreshCw, FiLogIn, FiLogOut, FiCamera, FiCheckCircle, FiMapPin } from 'react-icons/fi';
+import { FiRefreshCw, FiTrash2, FiDownload, FiTerminal } from 'react-icons/fi';
 
-const ACTION_ICONS = {
-  LOGIN: <FiLogIn className="text-green-500" />,
-  LOGOUT: <FiLogOut className="text-gray-500" />,
-  LOGIN_FAILED: <FiLogIn className="text-red-500" />,
-  QR_GENERATED: <FiCamera className="text-blue-500" />,
-  QR_SCAN: <FiCamera className="text-purple-500" />,
-  ATTENDANCE_MARKED: <FiCheckCircle className="text-green-600" />,
-  PAGE_VISIT: <FiActivity className="text-gray-400" />,
-  FEEDBACK_SUBMITTED: <FiActivity className="text-yellow-500" />,
-};
-
-const ACTION_COLORS = {
-  LOGIN: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-  LOGOUT: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
-  LOGIN_FAILED: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-  QR_GENERATED: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-  QR_SCAN: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
-  ATTENDANCE_MARKED: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
-  PAGE_VISIT: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-  FEEDBACK_SUBMITTED: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
-};
-
-const ROLE_COLORS = {
-  admin: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-  teacher: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-  student: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-  unknown: 'bg-gray-100 text-gray-600',
+const LOG_COLORS = {
+  LOGIN:             { dot: 'bg-green-400',  text: 'text-green-400',  label: 'LOGIN'     },
+  LOGOUT:            { dot: 'bg-gray-400',   text: 'text-gray-400',   label: 'LOGOUT'    },
+  LOGIN_FAILED:      { dot: 'bg-red-500',    text: 'text-red-400',    label: 'ERROR'     },
+  QR_GENERATED:      { dot: 'bg-blue-400',   text: 'text-blue-400',   label: 'QR'        },
+  QR_SCAN:           { dot: 'bg-purple-400', text: 'text-purple-400', label: 'SCAN'      },
+  ATTENDANCE_MARKED: { dot: 'bg-emerald-400',text: 'text-emerald-400',label: 'ATTEND'    },
+  FEEDBACK_SUBMITTED:{ dot: 'bg-yellow-400', text: 'text-yellow-400', label: 'FEEDBACK'  },
+  PAGE_VISIT:        { dot: 'bg-gray-500',   text: 'text-gray-500',   label: 'VISIT'     },
 };
 
 const ActivityLogDashboard = () => {
   const [logs, setLogs] = useState([]);
-  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filterRole, setFilterRole] = useState('');
-  const [filterAction, setFilterAction] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [filter, setFilter] = useState('ALL');
+  const bottomRef = useRef(null);
 
   const fetchLogs = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ limit: 200 });
-      if (filterRole) params.append('role', filterRole);
-      if (filterAction) params.append('action', filterAction);
-
-      const [logsRes, statsRes] = await Promise.all([
-        axios.get(`/api/logs?${params}`),
-        axios.get('/api/logs/stats')
-      ]);
-      setLogs(logsRes.data.logs);
-      setStats(statsRes.data);
-    } catch (err) {
-      console.error('Failed to fetch logs');
+      const res = await axios.get('/api/logs?limit=500');
+      setLogs(res.data.logs || []);
+    } catch {
+      // silent
     } finally {
       setLoading(false);
     }
-  }, [filterRole, filterAction]);
+  }, []);
 
-  useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+  useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
-  // Auto-refresh every 5 seconds
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(fetchLogs, 5000);
-    return () => clearInterval(interval);
+    const t = setInterval(fetchLogs, 3000);
+    return () => clearInterval(t);
   }, [autoRefresh, fetchLogs]);
 
-  const formatTime = (ts) => {
+  const formatTs = (ts) => {
     const d = new Date(ts);
-    return d.toLocaleString('en-IN', {
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    });
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
-  const timeAgo = (ts) => {
-    const diff = Date.now() - new Date(ts).getTime();
-    if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return `${Math.floor(diff / 86400000)}d ago`;
+  const buildLogLine = (log) => {
+    const meta = log.metadata ? JSON.stringify(log.metadata) : '';
+    return {
+      ts: formatTs(log.timestamp),
+      level: LOG_COLORS[log.action] || { dot: 'bg-gray-400', text: 'text-gray-400', label: 'INFO' },
+      action: log.action,
+      user: `${log.user?.name || 'unknown'} <${log.user?.email || ''}>`,
+      role: log.user?.role || 'unknown',
+      details: log.details || '',
+      meta,
+      ip: log.ip || '',
+      raw: JSON.stringify(log, null, 2),
+    };
+  };
+
+  const filtered = logs.filter(l =>
+    filter === 'ALL' || l.action === filter
+  ).map(buildLogLine);
+
+  const downloadLogs = () => {
+    const text = filtered.map(l =>
+      `[${l.ts}] [${l.level.label}] [${l.role.toUpperCase()}] ${l.user} → ${l.action}: ${l.details} ${l.meta}`
+    ).join('\n');
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `mits-logs-${Date.now()}.txt`; a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="p-6 bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-            <FiActivity className="text-blue-600" /> Activity Log
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Real-time tracking of every user action</p>
+    <div className="h-screen flex flex-col bg-gray-950 text-gray-100 font-mono">
+      {/* Top Bar */}
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <FiTerminal className="text-green-400 w-5 h-5" />
+          <span className="text-green-400 font-bold text-sm">MITS Attendance — Activity Log</span>
+          <span className={`w-2 h-2 rounded-full ml-2 ${autoRefresh ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
+          <span className="text-xs text-gray-500">{autoRefresh ? 'LIVE' : 'PAUSED'}</span>
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
-            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)}
-              className="w-4 h-4 text-blue-600 rounded" />
-            Auto-refresh
-          </label>
+          {/* Filter */}
+          <select
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            className="bg-gray-800 text-gray-300 text-xs px-2 py-1 rounded border border-gray-600 outline-none"
+          >
+            <option value="ALL">ALL</option>
+            <option value="LOGIN">LOGIN</option>
+            <option value="LOGOUT">LOGOUT</option>
+            <option value="LOGIN_FAILED">ERRORS</option>
+            <option value="QR_GENERATED">QR GENERATED</option>
+            <option value="ATTENDANCE_MARKED">ATTENDANCE</option>
+            <option value="FEEDBACK_SUBMITTED">FEEDBACK</option>
+          </select>
+
+          <button onClick={() => setAutoRefresh(p => !p)}
+            className={`text-xs px-3 py-1 rounded border ${autoRefresh ? 'border-green-500 text-green-400' : 'border-gray-600 text-gray-400'}`}>
+            {autoRefresh ? '⏸ Pause' : '▶ Resume'}
+          </button>
+
           <button onClick={fetchLogs}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-            <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
+            className="text-xs px-2 py-1 rounded border border-gray-600 text-gray-400 hover:text-white flex items-center gap-1">
+            <FiRefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+
+          <button onClick={downloadLogs}
+            className="text-xs px-2 py-1 rounded border border-gray-600 text-gray-400 hover:text-white flex items-center gap-1">
+            <FiDownload className="w-3 h-3" /> Export
+          </button>
+
+          <button onClick={() => setLogs([])}
+            className="text-xs px-2 py-1 rounded border border-red-800 text-red-400 hover:text-red-300 flex items-center gap-1">
+            <FiTrash2 className="w-3 h-3" /> Clear
           </button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 text-center">
-            <p className="text-3xl font-bold text-blue-600">{stats.total}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Total Events</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 text-center">
-            <p className="text-3xl font-bold text-green-600">{stats.today}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Today</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 text-center">
-            <p className="text-3xl font-bold text-purple-600">{stats.byAction?.LOGIN || 0}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Logins</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 text-center">
-            <p className="text-3xl font-bold text-emerald-600">{stats.byAction?.ATTENDANCE_MARKED || 0}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Attendances</p>
-          </div>
-        </div>
-      )}
-
-      {/* Action Breakdown */}
-      {stats?.byAction && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 mb-6">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Action Breakdown</h2>
-          <div className="flex flex-wrap gap-3">
-            {Object.entries(stats.byAction).map(([action, count]) => (
-              <div key={action} className={`px-3 py-2 rounded-lg text-sm font-semibold ${ACTION_COLORS[action] || 'bg-gray-100 text-gray-700'}`}>
-                {action.replace(/_/g, ' ')}: <span className="font-bold">{count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 mb-6">
-        <div className="flex items-center gap-4 flex-wrap">
-          <FiFilter className="text-gray-500" />
-          <select value={filterRole} onChange={e => setFilterRole(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-            <option value="">All Roles</option>
-            <option value="admin">Admin</option>
-            <option value="teacher">Teacher</option>
-            <option value="student">Student</option>
-          </select>
-          <select value={filterAction} onChange={e => setFilterAction(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm">
-            <option value="">All Actions</option>
-            <option value="LOGIN">Login</option>
-            <option value="LOGOUT">Logout</option>
-            <option value="LOGIN_FAILED">Failed Login</option>
-            <option value="QR_GENERATED">QR Generated</option>
-            <option value="ATTENDANCE_MARKED">Attendance Marked</option>
-            <option value="FEEDBACK_SUBMITTED">Feedback</option>
-          </select>
-          {(filterRole || filterAction) && (
-            <button onClick={() => { setFilterRole(''); setFilterAction(''); }}
-              className="text-sm text-red-600 hover:text-red-700">
-              Clear filters
-            </button>
-          )}
-          <span className="text-sm text-gray-500 dark:text-gray-400 ml-auto">
-            Showing {logs.length} events
-          </span>
-        </div>
+      {/* Stats bar */}
+      <div className="flex gap-6 px-4 py-1.5 bg-gray-900 border-b border-gray-800 text-xs text-gray-500 flex-shrink-0">
+        <span>Total: <span className="text-white font-bold">{logs.length}</span></span>
+        <span>Showing: <span className="text-white font-bold">{filtered.length}</span></span>
+        <span>Logins: <span className="text-green-400 font-bold">{logs.filter(l=>l.action==='LOGIN').length}</span></span>
+        <span>Attendance: <span className="text-emerald-400 font-bold">{logs.filter(l=>l.action==='ATTENDANCE_MARKED').length}</span></span>
+        <span>QR Generated: <span className="text-blue-400 font-bold">{logs.filter(l=>l.action==='QR_GENERATED').length}</span></span>
+        <span>Errors: <span className="text-red-400 font-bold">{logs.filter(l=>l.action==='LOGIN_FAILED').length}</span></span>
       </div>
 
-      {/* Live Log Feed */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-            Live Activity Feed
-          </h2>
-        </div>
+      {/* Log Output */}
+      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-0.5">
+        {loading && (
+          <div className="text-gray-500 text-sm py-4">Loading logs...</div>
+        )}
 
-        {loading ? (
-          <div className="p-12 text-center">
-            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-gray-500">Loading activity logs...</p>
-          </div>
-        ) : logs.length === 0 ? (
-          <div className="p-12 text-center text-gray-500 dark:text-gray-400">
-            <FiActivity className="text-5xl mx-auto mb-3 opacity-30" />
-            <p>No activity logs yet. Actions will appear here in real-time.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[600px] overflow-y-auto">
-            {logs.map((log) => (
-              <div key={log._id}
-                className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-start gap-4">
-                {/* Icon */}
-                <div className="text-xl mt-0.5 flex-shrink-0">
-                  {ACTION_ICONS[log.action] || <FiActivity className="text-gray-400" />}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${ACTION_COLORS[log.action] || 'bg-gray-100 text-gray-700'}`}>
-                      {log.action.replace(/_/g, ' ')}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${ROLE_COLORS[log.user?.role] || ''}`}>
-                      {log.user?.role?.toUpperCase()}
-                    </span>
-                    {log.metadata?.geoFenced && (
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-teal-100 text-teal-700 flex items-center gap-1">
-                        <FiMapPin className="w-3 h-3" /> Geo-fenced
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">{log.details}</p>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    <span className="flex items-center gap-1">
-                      <FiUser className="w-3 h-3" />
-                      {log.user?.name} ({log.user?.email})
-                    </span>
-                    <span>•</span>
-                    <span title={formatTime(log.timestamp)}>{timeAgo(log.timestamp)}</span>
-                    <span>•</span>
-                    <span>{formatTime(log.timestamp)}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
+        {!loading && filtered.length === 0 && (
+          <div className="text-gray-600 text-sm py-8 text-center">
+            No logs yet. Actions will appear here in real-time.
           </div>
         )}
+
+        {filtered.map((log, i) => (
+          <div key={i} className="flex gap-3 text-xs hover:bg-gray-900 px-1 py-0.5 rounded group">
+            {/* Timestamp */}
+            <span className="text-gray-600 flex-shrink-0 w-40">{log.ts}</span>
+
+            {/* Level badge */}
+            <span className={`flex-shrink-0 w-16 font-bold ${log.level.text}`}>
+              [{log.level.label}]
+            </span>
+
+            {/* Role */}
+            <span className="flex-shrink-0 w-12 text-gray-500 uppercase">{log.role}</span>
+
+            {/* User */}
+            <span className="flex-shrink-0 w-48 text-cyan-400 truncate">{log.user}</span>
+
+            {/* Action */}
+            <span className="flex-shrink-0 w-32 text-yellow-300">{log.action}</span>
+
+            {/* Details */}
+            <span className="text-gray-300 flex-1 truncate">{log.details}</span>
+
+            {/* Metadata */}
+            {log.meta && log.meta !== '{}' && (
+              <span className="text-gray-600 truncate max-w-xs">{log.meta}</span>
+            )}
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Bottom bar */}
+      <div className="px-4 py-1.5 bg-gray-900 border-t border-gray-800 text-xs text-gray-600 flex-shrink-0">
+        MITS Attendance System — Activity Monitor | Auto-refresh: {autoRefresh ? '3s' : 'OFF'} | {new Date().toLocaleString()}
       </div>
     </div>
   );
