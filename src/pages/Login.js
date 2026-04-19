@@ -1,36 +1,25 @@
 import React, { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
-import { jwtDecode } from 'jwt-decode';
 import { AuthContext } from '../context/AuthContext';
 import ThemeToggle from '../components/ThemeToggle';
 import { toast } from 'react-toastify';
-import { FiLock } from 'react-icons/fi';
+import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi';
 
-const BRANCH_MAP = {
-  tc: 'CST (Computer Science & Technology)',
-  cs: 'CS (Computer Science)',
-  it: 'IT (Information Technology)',
-  ec: 'EC (Electronics & Communication)',
-  me: 'ME (Mechanical Engineering)',
-  ce: 'CE (Civil Engineering)',
-  ee: 'EE (Electrical Engineering)',
-  bt: 'BT (Biotechnology)',
-};
-
-// All authorized emails — add any Gmail here to allow access
-const FACULTY_EMAILS = [
-  'ramsevakmeena93@gmail.com',
-];
-const ADMIN_EMAILS = [
-  'am9303386187@gmail.com',
-];
-const STUDENT_DOMAIN = 'mitsgwl.ac.in';
-
-// Secret admin bypass (triple-click logo)
-const SECRET_ADMINS = [
+// ─── Access Control ───────────────────────────────────────────────────────────
+const ADMIN_CREDENTIALS = [
   { email: 'am9303386187@gmail.com', password: 'mits@admin2026', name: 'Admin MITS' },
 ];
+
+const FACULTY_CREDENTIALS = [
+  { email: 'ramsevakmeena93@gmail.com', password: 'faculty@123', name: 'Ajay Meena' },
+];
+
+const STUDENT_DOMAIN = 'mitsgwl.ac.in';
+
+const BRANCH_MAP = {
+  tc: 'CST', cs: 'CS', it: 'IT', ec: 'EC',
+  me: 'ME', ce: 'CE', ee: 'EE', bt: 'BT',
+};
 
 function parseStudentEmail(email) {
   const local = email.split('@')[0].toLowerCase();
@@ -38,8 +27,7 @@ function parseStudentEmail(email) {
   if (!match) return null;
   const [, yearStr, branchCode, section, initials, roll] = match;
   const admissionYear = 2000 + parseInt(yearStr);
-  const currentYear = new Date().getFullYear();
-  const yearOfStudy = Math.min(currentYear - admissionYear + 1, 4);
+  const yearOfStudy = Math.min(new Date().getFullYear() - admissionYear + 1, 4);
   const yearLabel = ['1st Year', '2nd Year', '3rd Year', '4th Year'][yearOfStudy - 1];
   const enrollmentNo = `${branchCode.toUpperCase()}${yearStr}O${section}${initials.toUpperCase()}${roll}`;
   return {
@@ -49,164 +37,157 @@ function parseStudentEmail(email) {
   };
 }
 
-const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '';
-
 const Login = () => {
   const { setGoogleUser } = useContext(AuthContext);
   const navigate = useNavigate();
-  const [logoClicks, setLogoClicks] = useState(0);
-  const [showAdminForm, setShowAdminForm] = useState(false);
-  const [adminEmail, setAdminEmail] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPass, setShowPass] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleLogoClick = () => {
-    const n = logoClicks + 1;
-    setLogoClicks(n);
-    if (n >= 3) { setShowAdminForm(true); setLogoClicks(0); }
-  };
-
-  const handleAdminLogin = (e) => {
+  const handleLogin = (e) => {
     e.preventDefault();
-    const admin = SECRET_ADMINS.find(
-      a => a.email.toLowerCase() === adminEmail.toLowerCase() && a.password === adminPassword
+    setLoading(true);
+    const emailLower = email.toLowerCase().trim();
+
+    // Admin check
+    const admin = ADMIN_CREDENTIALS.find(
+      a => a.email.toLowerCase() === emailLower && a.password === password
     );
     if (admin) {
-      setGoogleUser({ id: admin.email, name: admin.name, email: admin.email, picture: null, role: 'admin', department: 'Administration', loginMethod: 'direct' });
+      setGoogleUser({ id: admin.email, name: admin.name, email: admin.email, role: 'admin', department: 'Administration', loginMethod: 'direct' });
       toast.success(`Welcome, ${admin.name}!`);
       navigate('/admin');
-    } else {
-      toast.error('Invalid admin credentials');
+      setLoading(false);
+      return;
     }
-  };
 
-  const handleGoogleSuccess = (credentialResponse) => {
-    try {
-      const decoded = jwtDecode(credentialResponse.credential);
-      const { email, name, picture } = decoded;
-      const emailLower = email.toLowerCase();
+    // Faculty check
+    const faculty = FACULTY_CREDENTIALS.find(
+      f => f.email.toLowerCase() === emailLower && f.password === password
+    );
+    if (faculty) {
+      setGoogleUser({ id: faculty.email, name: faculty.name, email: faculty.email, role: 'teacher', department: 'CST', loginMethod: 'direct' });
+      toast.success(`Welcome, ${faculty.name}!`);
+      navigate('/teacher');
+      setLoading(false);
+      return;
+    }
 
-      // Admin check
-      if (ADMIN_EMAILS.includes(emailLower)) {
-        setGoogleUser({ id: email, name, email, picture, role: 'admin', department: 'Administration', loginMethod: 'google' });
-        toast.success(`Welcome, ${name}!`);
-        navigate('/admin');
+    // Student check — college email + any password (or default)
+    if (emailLower.endsWith(`@${STUDENT_DOMAIN}`)) {
+      const parsed = parseStudentEmail(emailLower);
+      if (!parsed) {
+        toast.error('Invalid college email format.');
+        setLoading(false);
         return;
       }
-
-      // Faculty check
-      if (FACULTY_EMAILS.includes(emailLower)) {
-        setGoogleUser({ id: email, name, email, picture, role: 'teacher', department: 'CST', loginMethod: 'google' });
-        toast.success(`Welcome, ${name}!`);
-        navigate('/teacher');
-        return;
-      }
-
-      // Student check
-      if (emailLower.endsWith(`@${STUDENT_DOMAIN}`)) {
-        const parsed = parseStudentEmail(email);
-        if (!parsed) {
-          toast.error('Could not parse your college email. Contact admin.');
-          return;
-        }
+      // Default student password = roll number or "student@123"
+      if (password === 'student@123' || password === parsed.roll || password === parsed.enrollmentNo) {
         setGoogleUser({
-          id: email, name, email, picture, role: 'student',
-          department: parsed.branchCode, enrollmentNo: parsed.enrollmentNo,
-          branch: parsed.branch, branchCode: parsed.branchCode,
-          section: parsed.section, admissionYear: parsed.admissionYear,
-          yearOfStudy: parsed.yearOfStudy, yearLabel: parsed.yearLabel,
-          roll: parsed.roll, loginMethod: 'google',
+          id: emailLower, name: `Student ${parsed.enrollmentNo}`, email: emailLower,
+          role: 'student', department: parsed.branchCode, enrollmentNo: parsed.enrollmentNo,
+          branch: parsed.branch, branchCode: parsed.branchCode, section: parsed.section,
+          admissionYear: parsed.admissionYear, yearOfStudy: parsed.yearOfStudy,
+          yearLabel: parsed.yearLabel, roll: parsed.roll, loginMethod: 'direct',
         });
-        toast.success(`Welcome, ${name}!`);
+        toast.success(`Welcome!`);
         navigate('/student');
+        setLoading(false);
+        return;
+      } else {
+        toast.error('Wrong password. Use: student@123');
+        setLoading(false);
         return;
       }
-
-      toast.error('Access denied. Unauthorized email.');
-    } catch {
-      toast.error('Google login failed. Please try again.');
     }
+
+    toast.error('Access denied. Unauthorized email.');
+    setLoading(false);
   };
 
   return (
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <div className="min-h-screen w-full bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 flex items-center justify-center p-4">
-        <div className="absolute top-4 right-4">
-          <ThemeToggle />
+    <div className="min-h-screen w-full bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 flex items-center justify-center p-4">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
+
+      <div className="bg-white dark:bg-gray-900 rounded-3xl shadow-2xl w-full max-w-sm mx-auto overflow-hidden">
+        {/* Top banner */}
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 pt-8 pb-10 text-center">
+          <img src="/mits-logo.png" alt="MITS Logo"
+            className="w-16 h-16 object-contain mx-auto mb-3 drop-shadow-lg" />
+          <h1 className="text-white font-bold text-base leading-tight">
+            Madhav Institute of Technology & Science
+          </h1>
+          <p className="text-blue-200 text-xs mt-1">Attendance Management System</p>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-3xl shadow-2xl w-full max-w-sm mx-auto overflow-hidden">
-          {/* Top gradient banner */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 pt-8 pb-10 text-center">
-            <img
-              src="/mits-logo.png"
-              alt="MITS Logo"
-              onClick={handleLogoClick}
-              className="w-16 h-16 object-contain mx-auto mb-3 cursor-pointer select-none drop-shadow-lg"
-            />
-            <h1 className="text-white font-bold text-base leading-tight">
-              Madhav Institute of Technology & Science
-            </h1>
-            <p className="text-blue-200 text-xs mt-1">Attendance Management System</p>
-          </div>
+        {/* Form */}
+        <div className="px-6 py-8 -mt-4 bg-white dark:bg-gray-900 rounded-t-3xl">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-1">
+            Welcome Back
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-6">
+            Sign in to continue
+          </p>
 
-          {/* Card body */}
-          <div className="px-6 py-8 -mt-4 bg-white dark:bg-gray-900 rounded-t-3xl">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-1">
-              Welcome Back
-            </h2>
-            <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-6">
-              Sign in to continue
-            </p>
-
-            {/* Hidden admin form */}
-            {showAdminForm && (
-              <div className="mb-5 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <FiLock className="text-gray-500 w-4 h-4" />
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Admin Access</span>
-                  </div>
-                  <button onClick={() => setShowAdminForm(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
-                </div>
-                <form onSubmit={handleAdminLogin} className="space-y-3">
-                  <input type="email" placeholder="Admin email" value={adminEmail}
-                    onChange={e => setAdminEmail(e.target.value)} required
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" />
-                  <input type="password" placeholder="Password" value={adminPassword}
-                    onChange={e => setAdminPassword(e.target.value)} required
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" />
-                  <button type="submit"
-                    className="w-full bg-gray-900 dark:bg-gray-700 text-white py-2 rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors">
-                    Login as Admin
-                  </button>
-                </form>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Email
+              </label>
+              <div className="relative">
+                <FiMail className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                />
               </div>
-            )}
-
-            {/* Google Sign-In */}
-            <div className="flex justify-center mb-6">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={() => toast.error('Google Sign-In failed. Please try again.')}
-                useOneTap
-                theme="outline"
-                size="large"
-                width="300"
-                text="signin_with"
-                shape="rectangular"
-              />
             </div>
 
-            {/* Footer credits */}
-            <p className="text-center text-gray-400 dark:text-gray-500 text-xs">
-              Developed by <span className="text-blue-500 font-semibold">Ajay Meena</span>
-              {' & '}
-              <span className="text-indigo-500 font-semibold">Mohammad Shafat Ali Khan</span>
-            </p>
-          </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Password
+              </label>
+              <div className="relative">
+                <FiLock className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                />
+                <button type="button" onClick={() => setShowPass(!showPass)}
+                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600">
+                  {showPass ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 mt-2"
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+
+          <p className="text-center text-gray-400 dark:text-gray-500 text-xs mt-6">
+            Developed by <span className="text-blue-500 font-semibold">Ajay Meena</span>
+            {' & '}
+            <span className="text-indigo-500 font-semibold">Mohammad Shafat Ali Khan</span>
+          </p>
         </div>
       </div>
-    </GoogleOAuthProvider>
+    </div>
   );
 };
 
