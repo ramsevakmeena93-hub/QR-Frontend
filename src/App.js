@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -15,10 +15,14 @@ import QRScanner from './pages/QRScanner';
 import TeacherClassManagement from './pages/TeacherClassManagement';
 import StudentClassView from './pages/StudentClassView';
 import ActivityLogDashboard from './pages/ActivityLogDashboard';
+import { initGlobalTracker } from './utils/tracker';
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '';
 
 function App() {
+  useEffect(() => {
+    initGlobalTracker(); // Start tracking all clicks globally
+  }, []);
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       <ThemeProvider>
