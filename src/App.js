@@ -33,16 +33,16 @@ function App() {
                   <PrivateRoute role="admin"><AdminDashboard /></PrivateRoute>
                 } />
 
-                <Route path="/admin/logs" element={
-                  <PrivateRoute role="admin"><ActivityLogDashboard /></PrivateRoute>
-                } />
-
                 <Route path="/teacher/*" element={
                   <PrivateRoute role="teacher"><TeacherDashboard /></PrivateRoute>
                 } />
 
                 <Route path="/teacher/class/:classId" element={
                   <PrivateRoute role="teacher"><TeacherClassManagement /></PrivateRoute>
+                } />
+
+                <Route path="/teacher/logs" element={
+                  <PrivateRoute role="teacher"><ActivityLogDashboard /></PrivateRoute>
                 } />
 
                 <Route path="/student/*" element={
