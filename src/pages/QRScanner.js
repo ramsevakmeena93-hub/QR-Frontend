@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import jsQR from 'jsqr';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { FiCheckCircle, FiX, FiStar, FiCamera, FiAlertCircle, FiMapPin, FiRefreshCw } from 'react-icons/fi';
+import { FiCheckCircle, FiX, FiStar, FiCamera, FiAlertCircle, FiMapPin, FiRefreshCw, FiRotateCcw } from 'react-icons/fi';
 
 const MAX_DISTANCE_METERS = 50;
 const MAX_CAMERA_RETRIES = 3;
@@ -21,7 +21,6 @@ function getDistanceMeters(lat1, lng1, lat2, lng2) {
 }
 
 const QRScanner = () => {
-  // Permission gate: 'prompt' | 'requesting' | 'granted' | 'denied'
   const [permissionState, setPermissionState] = useState('prompt');
   const [scanning, setScanning] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -32,6 +31,9 @@ const QRScanner = () => {
   const [retryCount, setRetryCount] = useState(0);
   const [locationStatus, setLocationStatus] = useState('idle');
   const [distanceInfo, setDistanceInfo] = useState(null);
+  // Camera switch
+  const [cameras, setCameras] = useState([]);
+  const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -53,6 +55,18 @@ const QRScanner = () => {
     setCameraReady(false);
   }, []);
 
+  const switchCamera = useCallback(() => {
+    if (cameras.length <= 1) {
+      toast.info('Only one camera available');
+      return;
+    }
+    const nextIndex = (currentCameraIndex + 1) % cameras.length;
+    setCurrentCameraIndex(nextIndex);
+    stopCamera();
+    setTimeout(() => startCamera(0, cameras[nextIndex]?.deviceId), 300);
+    toast.info(`Switched to: ${cameras[nextIndex]?.label || `Camera ${nextIndex + 1}`}`, { autoClose: 2000 });
+  }, [cameras, currentCameraIndex, stopCamera, startCamera]);
+
   const scanFrame = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -71,25 +85,32 @@ const QRScanner = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startCamera = useCallback(async (attempt = 0) => {
+  const startCamera = useCallback(async (attempt = 0, deviceId = null) => {
     setCameraError(null);
     setCameraReady(false);
 
     try {
-      // Try to get real camera (skip virtual cameras like DroidCam)
-      let selectedDeviceId = null;
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(d => d.kind === 'videoinput');
-        // Prefer real cameras over virtual ones
-        const realCamera = videoDevices.find(d =>
+      // Enumerate all cameras on first call
+      let allCameras = cameras;
+      if (allCameras.length === 0) {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          allCameras = devices.filter(d => d.kind === 'videoinput');
+          setCameras(allCameras);
+        } catch {}
+      }
+
+      // Pick camera: use deviceId if provided, else pick real camera
+      let selectedDeviceId = deviceId;
+      if (!selectedDeviceId && allCameras.length > 0) {
+        const realCamera = allCameras.find(d =>
           !d.label.toLowerCase().includes('droid') &&
           !d.label.toLowerCase().includes('virtual') &&
           !d.label.toLowerCase().includes('obs') &&
           !d.label.toLowerCase().includes('snap')
         );
-        if (realCamera) selectedDeviceId = realCamera.deviceId;
-      } catch {}
+        selectedDeviceId = (realCamera || allCameras[0])?.deviceId;
+      }
 
       const constraints = selectedDeviceId
         ? { video: { deviceId: { exact: selectedDeviceId } } }
@@ -106,7 +127,6 @@ const QRScanner = () => {
         videoRef.current.srcObject = stream;
         videoRef.current.play().catch(() => {});
 
-        // Use both onloadedmetadata and a timeout fallback
         let started = false;
         const startScanning = () => {
           if (started) return;
@@ -116,13 +136,7 @@ const QRScanner = () => {
         };
 
         videoRef.current.onloadedmetadata = startScanning;
-
-        // Fallback: if metadata never fires, start after 2 seconds
-        setTimeout(() => {
-          if (!started && videoRef.current) {
-            startScanning();
-          }
-        }, 2000);
+        setTimeout(() => { if (!started && videoRef.current) startScanning(); }, 2000);
       }
     } catch (err) {
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -372,9 +386,20 @@ const QRScanner = () => {
                 <FiCamera className="text-blue-600 w-6 h-6" />
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Scan QR Code</h2>
               </div>
-              <button onClick={() => navigate('/student')} className="text-gray-500 hover:text-gray-700 dark:text-gray-400">
-                <FiX className="w-6 h-6" />
-              </button>
+              <div className="flex items-center gap-2">
+                {cameras.length > 1 && (
+                  <button
+                    onClick={switchCamera}
+                    className="p-2 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 transition-colors"
+                    title="Switch Camera"
+                  >
+                    <FiRotateCcw className="w-5 h-5" />
+                  </button>
+                )}
+                <button onClick={() => navigate('/student')} className="text-gray-500 hover:text-gray-700 dark:text-gray-400">
+                  <FiX className="w-6 h-6" />
+                </button>
+              </div>
             </div>
 
             {/* Instructions banner */}
