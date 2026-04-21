@@ -35,6 +35,14 @@ const QRScanner = () => {
   const [cameras, setCameras] = useState([]);
   const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
 
+  // Load camera list on mount
+  useEffect(() => {
+    navigator.mediaDevices.enumerateDevices().then(devices => {
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      setCameras(cams);
+    }).catch(() => {});
+  }, []);
+
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -387,15 +395,13 @@ const QRScanner = () => {
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Scan QR Code</h2>
               </div>
               <div className="flex items-center gap-2">
-                {cameras.length > 1 && (
-                  <button
-                    onClick={switchCamera}
-                    className="p-2 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 transition-colors"
-                    title="Switch Camera"
-                  >
-                    <FiRotateCcw className="w-5 h-5" />
-                  </button>
-                )}
+                <button
+                  onClick={switchCamera}
+                  className="p-2 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 transition-colors"
+                  title={`Switch Camera (${cameras.length} available)`}
+                >
+                  <FiRotateCcw className="w-5 h-5" />
+                </button>
                 <button onClick={() => navigate('/student')} className="text-gray-500 hover:text-gray-700 dark:text-gray-400">
                   <FiX className="w-6 h-6" />
                 </button>
