@@ -152,7 +152,7 @@ const QRScanner = () => {
           setCameraError('Camera is in use by another app. Close other apps using the camera and try again.');
         }
       } else if (err.name === 'OverconstrainedError') {
-        if (attempt < constraints.length - 1) {
+        if (attempt < 2) {
           startCamera(attempt + 1);
         } else {
           setCameraError('Could not start camera. Please try again.');
