@@ -423,13 +423,14 @@ const QRScanner = () => {
                 </select>
               </div>
             )}
+
+            {/* Instructions banner */}
+            <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
               <p className="text-xs text-blue-700 dark:text-blue-300 text-center">
                 📱 Hold your phone steady &nbsp;|&nbsp; Point at the QR code &nbsp;|&nbsp; Keep well-lit
               </p>
             </div>
 
-            {/* Instructions banner */}
-            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
             {locationStatus === 'checking' && (
               <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 rounded-lg flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
