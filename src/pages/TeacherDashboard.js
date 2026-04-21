@@ -280,7 +280,7 @@ const ClassCard = ({ classData }) => {
           📊 QR Generated Today: {qrCount.count}/{qrCount.limit}
           {qrCount.remaining === 0 && (
             <span className="block text-red-600 text-xs mt-1">
-              ⚠️ Daily limit reached! Use manual attendance below.
+              ⚠️ Daily limit reached (3/day)
             </span>
           )}
         </p>
@@ -293,14 +293,6 @@ const ClassCard = ({ classData }) => {
       >
         {loading ? 'Generating...' : qrCode ? `QR Active (${timeLeft}s)` : qrCount.remaining === 0 ? 'Daily Limit Reached' : 'Generate QR Code'}
       </button>
-
-      {/* Manual Attendance Button */}
-      <Link
-        to={`/teacher/manual-attendance/${classData._id}`}
-        className="block w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 text-center font-medium"
-      >
-        📝 Manual Attendance
-      </Link>
 
       {qrCode && (
         <div className="mt-4">
