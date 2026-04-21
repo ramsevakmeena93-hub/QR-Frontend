@@ -74,22 +74,55 @@ const QRScanner = () => {
   const startCamera = useCallback(async (attempt = 0) => {
     setCameraError(null);
     setCameraReady(false);
-    const constraints = [
-      { video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-      { video: { facingMode: 'environment' } },
-      { video: true },
-    ];
-    const constraint = constraints[Math.min(attempt, constraints.length - 1)];
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraint);
+      // Try to get real camera (skip virtual cameras like DroidCam)
+      let selectedDeviceId = null;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        // Prefer real cameras over virtual ones
+        const realCamera = videoDevices.find(d =>
+          !d.label.toLowerCase().includes('droid') &&
+          !d.label.toLowerCase().includes('virtual') &&
+          !d.label.toLowerCase().includes('obs') &&
+          !d.label.toLowerCase().includes('snap')
+        );
+        if (realCamera) selectedDeviceId = realCamera.deviceId;
+      } catch {}
+
+      const constraints = selectedDeviceId
+        ? { video: { deviceId: { exact: selectedDeviceId } } }
+        : attempt === 0
+          ? { video: { facingMode: { exact: 'environment' } } }
+          : attempt === 1
+            ? { video: { facingMode: 'environment' } }
+            : { video: true };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        videoRef.current.onloadedmetadata = () => {
+        videoRef.current.play().catch(() => {});
+
+        // Use both onloadedmetadata and a timeout fallback
+        let started = false;
+        const startScanning = () => {
+          if (started) return;
+          started = true;
           setCameraReady(true);
           scanFrame();
         };
+
+        videoRef.current.onloadedmetadata = startScanning;
+
+        // Fallback: if metadata never fires, start after 2 seconds
+        setTimeout(() => {
+          if (!started && videoRef.current) {
+            startScanning();
+          }
+        }, 2000);
       }
     } catch (err) {
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
