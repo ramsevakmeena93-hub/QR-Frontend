@@ -6,18 +6,13 @@ import { toast } from 'react-toastify';
 import { FiCheckCircle, FiX, FiStar, FiCamera, FiAlertCircle, FiMapPin, FiRefreshCw, FiRotateCcw } from 'react-icons/fi';
 
 const MAX_DISTANCE_METERS = 50;
-const MAX_CAMERA_RETRIES = 3;
 
 function getDistanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
 const QRScanner = () => {
@@ -28,20 +23,14 @@ const QRScanner = () => {
   const [attendanceData, setAttendanceData] = useState(null);
   const [cameraError, setCameraError] = useState(null);
   const [cameraReady, setCameraReady] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
   const [locationStatus, setLocationStatus] = useState('idle');
   const [distanceInfo, setDistanceInfo] = useState(null);
-  // Camera switch
   const [cameras, setCameras] = useState([]);
-  const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
-
-  // Load camera list on mount
-  useEffect(() => {
-    navigator.mediaDevices.enumerateDevices().then(devices => {
-      const cams = devices.filter(d => d.kind === 'videoinput');
-      setCameras(cams);
-    }).catch(() => {});
-  }, []);
+  const [selectedCameraId, setSelectedCameraId] = useState(null);
+  const [feedbackForm, setFeedbackForm] = useState({
+    teachingQuality: 5, contentClarity: 5, classroomEnvironment: 5,
+    comments: '', isAnonymous: false
+  });
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -49,41 +38,28 @@ const QRScanner = () => {
   const animFrameRef = useRef(null);
   const navigate = useNavigate();
 
-  const [feedbackForm, setFeedbackForm] = useState({
-    teachingQuality: 5, contentClarity: 5, classroomEnvironment: 5,
-    comments: '', isAnonymous: false
-  });
+  // Load camera list
+  useEffect(() => {
+    navigator.mediaDevices?.enumerateDevices().then(devices => {
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      setCameras(cams);
+      if (cams.length > 0) setSelectedCameraId(cams[0].deviceId);
+    }).catch(() => {});
+  }, []);
 
   const stopCamera = useCallback(() => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     setCameraReady(false);
   }, []);
-
-  const switchCamera = useCallback(() => {
-    if (cameras.length <= 1) {
-      toast.info('Only one camera available');
-      return;
-    }
-    const nextIndex = (currentCameraIndex + 1) % cameras.length;
-    setCurrentCameraIndex(nextIndex);
-    stopCamera();
-    setTimeout(() => startCamera(0, cameras[nextIndex]?.deviceId), 300);
-    toast.info(`Switched to: ${cameras[nextIndex]?.label || `Camera ${nextIndex + 1}`}`, { autoClose: 2000 });
-  }, [cameras, currentCameraIndex, stopCamera, startCamera]);
 
   const scanFrame = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
-      animFrameRef.current = requestAnimationFrame(scanFrame);
-      return;
-    }
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    if (!video || !canvas) { animFrameRef.current = requestAnimationFrame(scanFrame); return; }
+    if (video.readyState < 2) { animFrameRef.current = requestAnimationFrame(scanFrame); return; }
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -93,152 +69,101 @@ const QRScanner = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startCamera = useCallback(async (attempt = 0, deviceId = null) => {
+  const startCamera = useCallback(async (deviceId) => {
     setCameraError(null);
     setCameraReady(false);
-
     try {
-      // Enumerate all cameras
-      let allCameras = cameras;
-      if (allCameras.length === 0) {
-        try {
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          allCameras = devices.filter(d => d.kind === 'videoinput');
-          setCameras(allCameras);
-        } catch {}
-      }
-
-      // Build constraints - use deviceId if provided, otherwise use any camera
-      let constraints;
-      if (deviceId) {
-        constraints = { video: { deviceId: { exact: deviceId } } };
-      } else if (allCameras.length > 0) {
-        // Use the first available camera (whatever it is)
-        constraints = { video: { deviceId: { exact: allCameras[currentCameraIndex]?.deviceId || allCameras[0]?.deviceId } } };
-      } else {
-        constraints = { video: true };
-      }
-
+      const constraints = deviceId
+        ? { video: { deviceId: { exact: deviceId } } }
+        : { video: { facingMode: 'environment' } };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
-
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play().catch(() => {});
-
         let started = false;
-        const startScanning = () => {
-          if (started) return;
-          started = true;
-          setCameraReady(true);
-          scanFrame();
-        };
-
-        videoRef.current.onloadedmetadata = startScanning;
-        videoRef.current.oncanplay = startScanning;
-        setTimeout(() => { if (!started && videoRef.current) startScanning(); }, 1500);
+        const go = () => { if (started) return; started = true; setCameraReady(true); scanFrame(); };
+        videoRef.current.onloadedmetadata = go;
+        videoRef.current.oncanplay = go;
+        setTimeout(() => { if (!started) go(); }, 1500);
       }
     } catch (err) {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setPermissionState('denied');
-        setCameraError('Camera permission was denied. Please allow camera access in your browser settings and reload the page.');
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setCameraError('No camera found on this device.');
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        if (attempt < MAX_CAMERA_RETRIES - 1) {
-          setRetryCount(attempt + 1);
-          setTimeout(() => startCamera(attempt + 1), 1000);
-        } else {
-          setCameraError('Camera is in use by another app. Close other apps using the camera and try again.');
-        }
-      } else if (err.name === 'OverconstrainedError') {
-        if (attempt < 2) {
-          startCamera(attempt + 1);
-        } else {
-          setCameraError('Could not start camera. Please try again.');
-        }
-      } else {
-        setCameraError('Could not access camera: ' + err.message);
-      }
+      if (err.name === 'NotAllowedError') { setPermissionState('denied'); setCameraError('Camera permission denied.'); }
+      else if (err.name === 'NotFoundError') { setCameraError('No camera found.'); }
+      else { setCameraError('Camera error: ' + err.message); }
     }
   }, [scanFrame]);
 
   useEffect(() => {
-    if (scanning) startCamera(0);
+    if (scanning) startCamera(selectedCameraId);
     return () => stopCamera();
-  }, [scanning, startCamera, stopCamera]);
+  }, [scanning, selectedCameraId, startCamera, stopCamera]);
 
-  // Request camera (and optionally location) permissions, then start scanning
+  const switchCamera = () => {
+    if (cameras.length <= 1) { toast.info('Only one camera available'); return; }
+    const currentIdx = cameras.findIndex(c => c.deviceId === selectedCameraId);
+    const nextIdx = (currentIdx + 1) % cameras.length;
+    const nextId = cameras[nextIdx].deviceId;
+    setSelectedCameraId(nextId);
+    stopCamera();
+    setTimeout(() => startCamera(nextId), 300);
+    toast.info(`Camera: ${cameras[nextIdx].label || `Camera ${nextIdx + 1}`}`, { autoClose: 2000 });
+  };
+
   const requestPermissionsAndStart = async () => {
     setPermissionState('requesting');
     try {
-      // Probe camera permission first
-      const testStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      testStream.getTracks().forEach(t => t.stop()); // release immediately
+      const s = await navigator.mediaDevices.getUserMedia({ video: true });
+      s.getTracks().forEach(t => t.stop());
+      // Re-enumerate after permission granted (labels now available)
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      setCameras(cams);
+      if (cams.length > 0) setSelectedCameraId(cams[0].deviceId);
       setPermissionState('granted');
       setScanning(true);
     } catch (err) {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setPermissionState('denied');
-      } else {
-        // Some other error — still try to proceed
-        setPermissionState('granted');
-        setScanning(true);
-      }
+      if (err.name === 'NotAllowedError') setPermissionState('denied');
+      else { setPermissionState('granted'); setScanning(true); }
     }
   };
 
-  const getStudentLocation = () => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error('Geolocation not supported by this browser'));
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-        (err) => {
-          if (err.code === 1) reject(new Error('Location permission denied. Please allow location access.'));
-          else if (err.code === 2) reject(new Error('Location unavailable. Please enable GPS.'));
-          else reject(new Error('Could not get your location. Please try again.'));
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    });
-  };
+  const getStudentLocation = () => new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('Geolocation not supported')); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      err => reject(new Error(err.code === 1 ? 'Location permission denied.' : 'Could not get location.')),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  });
 
   const handleScan = async (data) => {
     if (!data || !scanning) return;
     setScanning(false);
     stopCamera();
-
     try {
       let qrData;
       try { qrData = JSON.parse(data); } catch { qrData = { token: data }; }
 
       if (qrData.lat && qrData.lng) {
         setLocationStatus('checking');
-        toast.info('📍 Verifying your location...', { autoClose: 3000 });
-        let studentLocation;
+        toast.info('📍 Verifying location...', { autoClose: 3000 });
         try {
-          studentLocation = await getStudentLocation();
+          const loc = await getStudentLocation();
+          const dist = getDistanceMeters(loc.lat, loc.lng, qrData.lat, qrData.lng);
+          setDistanceInfo({ distance: Math.round(dist), accuracy: Math.round(loc.accuracy) });
+          if (dist > MAX_DISTANCE_METERS) {
+            setLocationStatus('far');
+            toast.error(`🚫 ${Math.round(dist)}m away. Must be within ${MAX_DISTANCE_METERS}m.`, { autoClose: 6000 });
+            setScanning(true); return;
+          }
+          setLocationStatus('ok');
+          toast.success(`✅ ${Math.round(dist)}m from classroom`, { autoClose: 2000 });
         } catch (locErr) {
           setLocationStatus('denied');
           toast.error(`📍 ${locErr.message}`);
-          setScanning(true);
-          return;
+          setScanning(true); return;
         }
-        const distance = getDistanceMeters(
-          studentLocation.lat, studentLocation.lng, qrData.lat, qrData.lng
-        );
-        setDistanceInfo({ distance: Math.round(distance), accuracy: Math.round(studentLocation.accuracy) });
-        if (distance > MAX_DISTANCE_METERS) {
-          setLocationStatus('far');
-          toast.error(`🚫 You are ${Math.round(distance)}m away. Must be within ${MAX_DISTANCE_METERS}m.`, { autoClose: 6000 });
-          setScanning(true);
-          return;
-        }
-        setLocationStatus('ok');
-        toast.success(`✅ Location verified! ${Math.round(distance)}m from classroom.`, { autoClose: 2000 });
       }
 
       const token = localStorage.getItem('token');
@@ -266,9 +191,7 @@ const QRScanner = () => {
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('/api/feedback/submit', {
-        ...feedbackForm, classId: attendanceData?.class, attendanceId: attendanceData?._id
-      });
+      await axios.post('/api/feedback/submit', { ...feedbackForm, classId: attendanceData?.class, attendanceId: attendanceData?._id });
       toast.success('Thank you for your feedback!');
       setTimeout(() => navigate('/student'), 1500);
     } catch { toast.error('Failed to submit feedback'); }
@@ -278,7 +201,7 @@ const QRScanner = () => {
     <div className="mb-4">
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{label}</label>
       <div className="flex gap-2 items-center">
-        {[1, 2, 3, 4, 5].map((star) => (
+        {[1,2,3,4,5].map(star => (
           <button key={star} type="button" onClick={() => onChange(star)} className="focus:outline-none hover:scale-110 transition-transform">
             <FiStar className={`w-8 h-8 ${star <= value ? 'text-yellow-400 fill-current' : 'text-gray-300 dark:text-gray-600'}`} />
           </button>
@@ -288,7 +211,7 @@ const QRScanner = () => {
     </div>
   );
 
-  // ─── Permission prompt screen ─────────────────────────────────────────────
+  // ─── Permission prompt ────────────────────────────────────────────────────
   if (permissionState === 'prompt' || permissionState === 'requesting') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
@@ -297,101 +220,58 @@ const QRScanner = () => {
             <FiCamera className="w-10 h-10 text-blue-600 dark:text-blue-400" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Camera Access Needed</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
-            To scan the attendance QR code, this app needs access to your camera and location.
-          </p>
-
-          <div className="text-left space-y-3 mb-6">
-            <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
-              <FiCamera className="text-blue-600 w-5 h-5 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Camera</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Used to scan the QR code shown by your teacher</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg">
-              <FiMapPin className="text-green-600 w-5 h-5 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Location</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Verifies you are within {MAX_DISTANCE_METERS}m of the classroom</p>
-              </div>
-            </div>
-          </div>
-
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-5">
-            When your browser asks, tap <strong>"Allow"</strong> for both camera and location.
-          </p>
-
-          <button
-            onClick={requestPermissionsAndStart}
-            disabled={permissionState === 'requesting'}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl font-semibold text-base hover:shadow-lg transition-all disabled:opacity-60 flex items-center justify-center gap-2"
-          >
-            {permissionState === 'requesting' ? (
-              <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Requesting access...</>
-            ) : (
-              <><FiCamera className="w-5 h-5" /> Allow Camera &amp; Start Scanning</>
-            )}
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">Allow camera and location to scan the QR code.</p>
+          <button onClick={requestPermissionsAndStart} disabled={permissionState === 'requesting'}
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-60 flex items-center justify-center gap-2">
+            {permissionState === 'requesting'
+              ? <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Requesting...</>
+              : <><FiCamera className="w-5 h-5" /> Allow Camera &amp; Start Scanning</>}
           </button>
-
-          <button onClick={() => navigate('/student')} className="mt-3 w-full text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 py-2">
-            Cancel
-          </button>
+          <button onClick={() => navigate('/student')} className="mt-3 w-full text-sm text-gray-500 py-2">Cancel</button>
         </div>
       </div>
     );
   }
 
-  // ─── Permission denied screen ─────────────────────────────────────────────
+  // ─── Permission denied ────────────────────────────────────────────────────
   if (permissionState === 'denied') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center">
           <div className="w-20 h-20 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center mx-auto mb-5">
-            <FiAlertCircle className="w-10 h-10 text-red-600 dark:text-red-400" />
+            <FiAlertCircle className="w-10 h-10 text-red-600" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Camera Blocked</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
-            Camera access was denied. Follow these steps to fix it:
-          </p>
           <ol className="text-left text-sm text-gray-700 dark:text-gray-300 space-y-2 mb-6 list-decimal list-inside">
-            <li>Tap the <strong>lock / info icon</strong> in your browser's address bar</li>
-            <li>Find <strong>Camera</strong> and set it to <strong>Allow</strong></li>
-            <li>Reload this page and try again</li>
+            <li>Tap the lock icon in your browser's address bar</li>
+            <li>Set Camera to <strong>Allow</strong></li>
+            <li>Reload the page</li>
           </ol>
-          <button
-            onClick={() => { setPermissionState('prompt'); setCameraError(null); }}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2"
-          >
+          <button onClick={() => { setPermissionState('prompt'); setCameraError(null); }}
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2">
             <FiRefreshCw className="w-5 h-5" /> Try Again
           </button>
-          <button onClick={() => navigate('/student')} className="mt-3 w-full text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 py-2">
-            Go Back
-          </button>
+          <button onClick={() => navigate('/student')} className="mt-3 w-full text-sm text-gray-500 py-2">Go Back</button>
         </div>
       </div>
     );
   }
 
-  // ─── Main scanner / success / feedback ───────────────────────────────────
+  // ─── Main scanner ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-lg w-full">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 max-w-lg w-full">
 
-        {/* Scanner View */}
         {!success && !showFeedback && (
           <>
+            {/* Header */}
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2">
                 <FiCamera className="text-blue-600 w-6 h-6" />
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Scan QR Code</h2>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Scan QR Code</h2>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={switchCamera}
-                  className="p-2 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 transition-colors"
-                  title={`Switch Camera (${cameras.length} available)`}
-                >
+                <button onClick={switchCamera} className="p-2 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 transition-colors" title="Switch Camera">
                   <FiRotateCcw className="w-5 h-5" />
                 </button>
                 <button onClick={() => navigate('/student')} className="text-gray-500 hover:text-gray-700 dark:text-gray-400">
@@ -400,96 +280,59 @@ const QRScanner = () => {
               </div>
             </div>
 
-            {/* Camera selector dropdown */}
+            {/* Camera selector */}
             {cameras.length > 0 && (
-              <div className="mb-3">
-                <select
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  value={cameras[currentCameraIndex]?.deviceId || ''}
-                  onChange={(e) => {
-                    const idx = cameras.findIndex(c => c.deviceId === e.target.value);
-                    if (idx >= 0) {
-                      setCurrentCameraIndex(idx);
-                      stopCamera();
-                      setTimeout(() => startCamera(0, cameras[idx].deviceId), 300);
-                    }
-                  }}
-                >
-                  {cameras.map((cam, i) => (
-                    <option key={cam.deviceId} value={cam.deviceId}>
-                      {cam.label || `Camera ${i + 1}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <select className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white mb-3"
+                value={selectedCameraId || ''}
+                onChange={e => { setSelectedCameraId(e.target.value); stopCamera(); setTimeout(() => startCamera(e.target.value), 300); }}>
+                {cameras.map((cam, i) => (
+                  <option key={cam.deviceId} value={cam.deviceId}>{cam.label || `Camera ${i + 1}`}</option>
+                ))}
+              </select>
             )}
 
-            {/* Instructions banner */}
-            <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
-              <p className="text-xs text-blue-700 dark:text-blue-300 text-center">
-                📱 Hold your phone steady &nbsp;|&nbsp; Point at the QR code &nbsp;|&nbsp; Keep well-lit
-              </p>
-            </div>
-
+            {/* Location status */}
             {locationStatus === 'checking' && (
-              <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 rounded-lg flex items-center gap-2">
+              <div className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 rounded-lg flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-yellow-800 dark:text-yellow-300 text-sm font-medium">Checking your location...</p>
+                <p className="text-yellow-800 dark:text-yellow-300 text-sm">Checking location...</p>
               </div>
             )}
             {locationStatus === 'ok' && distanceInfo && (
-              <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/30 border border-green-300 rounded-lg flex items-center gap-2">
-                <FiMapPin className="text-green-600 w-5 h-5" />
-                <p className="text-green-800 dark:text-green-300 text-sm font-medium">
-                  ✅ Location verified — {distanceInfo.distance}m from classroom
-                </p>
+              <div className="mb-3 p-3 bg-green-50 dark:bg-green-900/30 border border-green-300 rounded-lg flex items-center gap-2">
+                <FiMapPin className="text-green-600 w-4 h-4" />
+                <p className="text-green-800 dark:text-green-300 text-sm">✅ {distanceInfo.distance}m from classroom</p>
               </div>
             )}
             {locationStatus === 'far' && distanceInfo && (
-              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-300 rounded-lg flex items-center gap-2">
-                <FiMapPin className="text-red-600 w-5 h-5" />
-                <p className="text-red-800 dark:text-red-300 text-sm font-medium">
-                  🚫 Too far! {distanceInfo.distance}m away (max {MAX_DISTANCE_METERS}m)
-                </p>
+              <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/30 border border-red-300 rounded-lg flex items-center gap-2">
+                <FiMapPin className="text-red-600 w-4 h-4" />
+                <p className="text-red-800 dark:text-red-300 text-sm">🚫 {distanceInfo.distance}m away (max {MAX_DISTANCE_METERS}m)</p>
               </div>
             )}
 
             {/* Camera error */}
             {cameraError && (
-              <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/30 border border-red-300 rounded-lg">
-                <div className="flex items-start gap-3">
+              <div className="mb-3 p-3 bg-red-50 dark:bg-red-900/30 border border-red-300 rounded-lg">
+                <div className="flex items-start gap-2">
                   <FiAlertCircle className="text-red-600 w-5 h-5 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-red-800 dark:text-red-300 font-medium text-sm">{cameraError}</p>
-                    <div className="flex gap-2 mt-2">
-                      <button onClick={() => startCamera(0)}
-                        className="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 flex items-center gap-1">
-                        <FiRefreshCw className="w-3 h-3" /> Retry
-                      </button>
-                      <button onClick={() => setPermissionState('denied')}
-                        className="text-sm border border-red-400 text-red-700 dark:text-red-300 px-3 py-1 rounded hover:bg-red-50">
-                        Help
-                      </button>
-                    </div>
+                    <p className="text-red-800 dark:text-red-300 text-sm">{cameraError}</p>
+                    <button onClick={() => startCamera(selectedCameraId)} className="mt-2 text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 flex items-center gap-1">
+                      <FiRefreshCw className="w-3 h-3" /> Retry
+                    </button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Retry indicator */}
-            {retryCount > 0 && !cameraError && (
-              <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg text-center">
-                <p className="text-xs text-yellow-700 dark:text-yellow-300">Retrying camera... (attempt {retryCount + 1}/{MAX_CAMERA_RETRIES})</p>
-              </div>
-            )}
-
             {/* Camera feed */}
-            <div className="relative rounded-xl overflow-hidden bg-black mb-4" style={{ aspectRatio: '4/3' }}>
+            <div className="relative rounded-xl overflow-hidden bg-black mb-3" style={{ aspectRatio: '4/3' }}>
               <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
               <canvas ref={canvasRef} className="hidden" />
               {cameraReady && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="relative w-56 h-56">
+                  <div className="relative w-52 h-52">
                     <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-blue-400 rounded-tl-lg" />
                     <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-blue-400 rounded-tr-lg" />
                     <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-blue-400 rounded-bl-lg" />
@@ -508,12 +351,9 @@ const QRScanner = () => {
               )}
             </div>
 
-            <p className="text-center text-gray-500 dark:text-gray-400 text-sm mb-2">
-              Point your camera at the teacher's QR code
-            </p>
             <div className="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-center">
               <p className="text-xs text-blue-700 dark:text-blue-300">
-                ⏱️ QR valid for <strong>8 seconds</strong> &nbsp;|&nbsp; 📍 Must be within <strong>{MAX_DISTANCE_METERS}m</strong> of classroom
+                ⏱️ QR valid for <strong>8 seconds</strong> &nbsp;|&nbsp; 📍 Must be within <strong>{MAX_DISTANCE_METERS}m</strong>
               </p>
             </div>
           </>
@@ -541,31 +381,19 @@ const QRScanner = () => {
               <button onClick={() => navigate('/student')} className="text-sm text-gray-500 hover:text-gray-700">Skip →</button>
             </div>
             <form onSubmit={handleFeedbackSubmit} className="space-y-4">
-              <StarRating label="Teaching Quality" value={feedbackForm.teachingQuality}
-                onChange={(v) => setFeedbackForm({ ...feedbackForm, teachingQuality: v })} />
-              <StarRating label="Content Clarity" value={feedbackForm.contentClarity}
-                onChange={(v) => setFeedbackForm({ ...feedbackForm, contentClarity: v })} />
-              <StarRating label="Classroom Environment" value={feedbackForm.classroomEnvironment}
-                onChange={(v) => setFeedbackForm({ ...feedbackForm, classroomEnvironment: v })} />
+              <StarRating label="Teaching Quality" value={feedbackForm.teachingQuality} onChange={v => setFeedbackForm({...feedbackForm, teachingQuality: v})} />
+              <StarRating label="Content Clarity" value={feedbackForm.contentClarity} onChange={v => setFeedbackForm({...feedbackForm, contentClarity: v})} />
+              <StarRating label="Classroom Environment" value={feedbackForm.classroomEnvironment} onChange={v => setFeedbackForm({...feedbackForm, classroomEnvironment: v})} />
               <textarea rows="3" placeholder="Comments (optional)"
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                value={feedbackForm.comments}
-                onChange={(e) => setFeedbackForm({ ...feedbackForm, comments: e.target.value })} />
+                value={feedbackForm.comments} onChange={e => setFeedbackForm({...feedbackForm, comments: e.target.value})} />
               <div className="flex items-center gap-2">
-                <input type="checkbox" id="anon" checked={feedbackForm.isAnonymous}
-                  onChange={(e) => setFeedbackForm({ ...feedbackForm, isAnonymous: e.target.checked })}
-                  className="w-4 h-4 text-blue-600 rounded" />
+                <input type="checkbox" id="anon" checked={feedbackForm.isAnonymous} onChange={e => setFeedbackForm({...feedbackForm, isAnonymous: e.target.checked})} className="w-4 h-4 text-blue-600 rounded" />
                 <label htmlFor="anon" className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer">Submit anonymously</label>
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="submit"
-                  className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
-                  Submit Feedback
-                </button>
-                <button type="button" onClick={() => navigate('/student')}
-                  className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                  Skip
-                </button>
+                <button type="submit" className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all">Submit Feedback</button>
+                <button type="button" onClick={() => navigate('/student')} className="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Skip</button>
               </div>
             </form>
           </div>
