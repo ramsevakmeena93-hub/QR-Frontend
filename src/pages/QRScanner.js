@@ -98,7 +98,7 @@ const QRScanner = () => {
     setCameraReady(false);
 
     try {
-      // Enumerate all cameras on first call
+      // Enumerate all cameras
       let allCameras = cameras;
       if (allCameras.length === 0) {
         try {
@@ -108,25 +108,16 @@ const QRScanner = () => {
         } catch {}
       }
 
-      // Pick camera: use deviceId if provided, else pick real camera
-      let selectedDeviceId = deviceId;
-      if (!selectedDeviceId && allCameras.length > 0) {
-        const realCamera = allCameras.find(d =>
-          !d.label.toLowerCase().includes('droid') &&
-          !d.label.toLowerCase().includes('virtual') &&
-          !d.label.toLowerCase().includes('obs') &&
-          !d.label.toLowerCase().includes('snap')
-        );
-        selectedDeviceId = (realCamera || allCameras[0])?.deviceId;
+      // Build constraints - use deviceId if provided, otherwise use any camera
+      let constraints;
+      if (deviceId) {
+        constraints = { video: { deviceId: { exact: deviceId } } };
+      } else if (allCameras.length > 0) {
+        // Use the first available camera (whatever it is)
+        constraints = { video: { deviceId: { exact: allCameras[currentCameraIndex]?.deviceId || allCameras[0]?.deviceId } } };
+      } else {
+        constraints = { video: true };
       }
-
-      const constraints = selectedDeviceId
-        ? { video: { deviceId: { exact: selectedDeviceId } } }
-        : attempt === 0
-          ? { video: { facingMode: { exact: 'environment' } } }
-          : attempt === 1
-            ? { video: { facingMode: 'environment' } }
-            : { video: true };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
@@ -144,7 +135,8 @@ const QRScanner = () => {
         };
 
         videoRef.current.onloadedmetadata = startScanning;
-        setTimeout(() => { if (!started && videoRef.current) startScanning(); }, 2000);
+        videoRef.current.oncanplay = startScanning;
+        setTimeout(() => { if (!started && videoRef.current) startScanning(); }, 1500);
       }
     } catch (err) {
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
