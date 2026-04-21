@@ -408,14 +408,36 @@ const QRScanner = () => {
               </div>
             </div>
 
-            {/* Instructions banner */}
-            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
+            {/* Camera selector dropdown */}
+            {cameras.length > 0 && (
+              <div className="mb-3">
+                <select
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  value={cameras[currentCameraIndex]?.deviceId || ''}
+                  onChange={(e) => {
+                    const idx = cameras.findIndex(c => c.deviceId === e.target.value);
+                    if (idx >= 0) {
+                      setCurrentCameraIndex(idx);
+                      stopCamera();
+                      setTimeout(() => startCamera(0, cameras[idx].deviceId), 300);
+                    }
+                  }}
+                >
+                  {cameras.map((cam, i) => (
+                    <option key={cam.deviceId} value={cam.deviceId}>
+                      {cam.label || `Camera ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
               <p className="text-xs text-blue-700 dark:text-blue-300 text-center">
                 📱 Hold your phone steady &nbsp;|&nbsp; Point at the QR code &nbsp;|&nbsp; Keep well-lit
               </p>
             </div>
 
-            {/* Geo-fence status */}
+            {/* Instructions banner */}
+            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
             {locationStatus === 'checking' && (
               <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 rounded-lg flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
